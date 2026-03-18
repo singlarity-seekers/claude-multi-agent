@@ -24,60 +24,7 @@ If no arguments, use TaskList to find recently completed tasks requiring evaluat
 
 ### Step 2: Agent-Specific Quality Standards
 
-**Python Development (python-dev agent)**:
-- ✅ Type hints on all functions and classes
-- ✅ PEP 8 compliance (formatting, naming)
-- ✅ Proper exception handling with specific exceptions
-- ✅ Clear docstrings following PEP 257
-- ✅ Edge cases handled appropriately
-- ✅ Security considerations (no hardcoded secrets, input validation)
-- ✅ Performance implications considered
-- ✅ Testing strategy included
-
-**Go Development (go-developer agent)**:
-- ✅ Idiomatic Go code patterns
-- ✅ Comprehensive error handling (no panic in library code)
-- ✅ Race condition safety (proper goroutine/channel usage)
-- ✅ Memory leak prevention
-- ✅ Clear documentation comments
-- ✅ Tests and benchmarks included
-- ✅ golangci-lint compliance
-
-**DevOps (devops agent)**:
-- ✅ Security hardening applied
-- ✅ Secrets properly managed (no plaintext passwords)
-- ✅ Resource limits and requests set
-- ✅ Monitoring and logging configured
-- ✅ Backup and recovery procedures planned
-- ✅ Cost optimization considered
-- ✅ Complete documentation provided
-
-**Documentation (tech-writer agent)**:
-- ✅ Clear structure and navigation
-- ✅ Accurate technical information
-- ✅ Consistent formatting and style
-- ✅ Appropriate examples included
-- ✅ Target audience appropriately addressed
-- ✅ Links and references valid
-- ✅ Grammar and spelling correct
-
-**Code Analysis (code-analyzer agent)**:
-- ✅ Architecture assessment thorough
-- ✅ Security vulnerabilities identified
-- ✅ Performance bottlenecks analyzed
-- ✅ Code quality metrics provided
-- ✅ Best practices compliance verified
-- ✅ Maintainability factors evaluated
-- ✅ Technical debt documented
-
-**Testing (test-planner agent)**:
-- ✅ Test scope clearly defined
-- ✅ Test levels identified (unit/integration/e2e)
-- ✅ Test cases documented with clear steps
-- ✅ Edge cases and error conditions covered
-- ✅ Performance testing criteria included
-- ✅ Security testing considerations
-- ✅ Automation strategy defined
+Load the agent-specific checklist from `.claude/skills/evaluate-and-improve/references/quality-rubric.md` — see the **Agent-Specific Checklists** section. Match the agent type to the appropriate checklist (python-dev, go-developer, devops, tech-writer, code-analyzer, test-planner, software-architect, general-purpose). Use the checklist items as the quality standards for evaluation.
 
 ### Step 3: Comprehensive Output Analysis
 
@@ -146,7 +93,7 @@ Create a comprehensive evaluation following this format:
 - **Security Assessment**: [Any security concerns]
 - **Performance Analysis**: [Performance considerations]
 
-**Final Verdict**: PASS / FAIL / CONDITIONAL PASS
+**Final Verdict**: EXCELLENT / PASS / CONDITIONAL PASS / FAIL (see verdict criteria in quality-rubric.md)
 
 **Recommendations**:
 - [Specific improvement suggestions]

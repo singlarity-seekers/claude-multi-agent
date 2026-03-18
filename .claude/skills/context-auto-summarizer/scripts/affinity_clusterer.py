@@ -54,31 +54,106 @@ class Cluster:
 # ---- Parsing ----
 
 _SEGMENT_PATTERNS = [
-    (re.compile(r'Human:.*?(?=\nAssistant:|\n<function_calls>|\n\n|\Z)', re.DOTALL), "user_message"),
-    (re.compile(r'Assistant:.*?(?=\nHuman:|\n<function_calls>|\n\n|\Z)', re.DOTALL),  "assistant_response"),
-    (re.compile(r'<function_calls>.*?</function_calls>', re.DOTALL),                  "tool_use"),
-    (re.compile(r'<function_results>.*?</function_results>', re.DOTALL),               "tool_result"),
+    (re.compile(r'Human:.*?(?=\nAssistant:|\n<function_calls>|\Z)', re.DOTALL), "user_message"),
+    (re.compile(r'Assistant:.*?(?=\nHuman:|\n<function_calls>|\Z)', re.DOTALL),  "assistant_response"),
+    (re.compile(r'<function_calls>.*?</function_calls>', re.DOTALL),              "tool_use"),
+    (re.compile(r'<function_results>.*?</function_results>', re.DOTALL),           "tool_result"),
 ]
 
 
 def _intervals_overlap(start: int, end: int, intervals: List[tuple]) -> bool:
-    """Check whether [start, end) overlaps any existing interval.
-
-    Uses a simple linear scan over sorted intervals.  For the typical
-    number of matches in a conversation (hundreds, not millions) this is
-    efficient and avoids the per-character position set that created
-    O(n*m) memory usage in the original implementation.
-    """
+    """Check whether [start, end) overlaps any existing interval."""
     for istart, iend in intervals:
         if start < iend and end > istart:
             return True
     return False
 
 
-def parse_conversation(text: str) -> List[Segment]:
-    """Parse raw conversation text into ordered Segment objects."""
-    raw_matches: List[tuple] = []  # (start, end, content, type)
+def _parse_jsonl(text: str) -> Optional[List[Segment]]:
+    """Try to parse text as JSONL conversation format (Claude Code native).
 
+    Returns None if the text is not valid JSONL.
+    """
+    lines = text.strip().splitlines()
+    if not lines:
+        return None
+
+    messages = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            return None  # Not JSONL
+        if isinstance(obj, dict) and "role" in obj:
+            messages.append(obj)
+        elif isinstance(obj, dict) and "type" in obj:
+            messages.append(obj)
+
+    if not messages:
+        return None
+
+    role_map = {
+        "user": "user_message",
+        "human": "user_message",
+        "assistant": "assistant_response",
+        "tool": "tool_result",
+        "tool_use": "tool_use",
+        "function": "tool_result",
+    }
+
+    segments = []
+    pos = 0
+    for idx, msg in enumerate(messages):
+        role = msg.get("role", msg.get("type", "unknown"))
+        seg_type = role_map.get(role, "assistant_response")
+
+        # Extract content from various formats
+        content = ""
+        raw_content = msg.get("content", "")
+        if isinstance(raw_content, str):
+            content = raw_content
+        elif isinstance(raw_content, list):
+            parts = []
+            for block in raw_content:
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict):
+                    if block.get("type") == "tool_use":
+                        seg_type = "tool_use"
+                        parts.append(json.dumps(block, indent=2))
+                    elif block.get("type") == "tool_result":
+                        seg_type = "tool_result"
+                        parts.append(str(block.get("content", block.get("output", ""))))
+                    else:
+                        parts.append(block.get("text", str(block)))
+            content = "\n".join(parts)
+
+        content = content.strip()
+        if not content:
+            continue
+
+        end_pos = pos + len(content)
+        seg = Segment(
+            id=f"seg_{len(segments):04d}",
+            content=content,
+            segment_type=seg_type,
+            start_pos=pos,
+            end_pos=end_pos,
+            token_count=max(1, len(content) // 4),
+        )
+        seg.embedding = _embedding(content)
+        segments.append(seg)
+        pos = end_pos + 1
+
+    return segments if segments else None
+
+
+def _parse_plain_text(text: str) -> List[Segment]:
+    """Parse plain-text conversation (Human:/Assistant: markers or freeform)."""
+    raw_matches: List[tuple] = []  # (start, end, content, type)
     used_intervals: List[tuple] = []
 
     for pattern, seg_type in _SEGMENT_PATTERNS:
@@ -94,6 +169,11 @@ def parse_conversation(text: str) -> List[Segment]:
     # Sort by position
     raw_matches.sort(key=lambda t: t[0])
 
+    # If no structured matches found, treat the whole text as segments
+    # split by blank-line-separated blocks
+    if not raw_matches:
+        raw_matches = _split_freeform(text)
+
     segments = []
     for idx, (start, end, content, seg_type) in enumerate(raw_matches):
         seg = Segment(
@@ -108,6 +188,47 @@ def parse_conversation(text: str) -> List[Segment]:
         segments.append(seg)
 
     return segments
+
+
+def _split_freeform(text: str) -> List[tuple]:
+    """Split unstructured text into segments by blank lines or --- separators."""
+    blocks = re.split(r'\n\s*\n|\n---+\n', text)
+    matches = []
+    pos = 0
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        start = text.find(block, pos)
+        if start == -1:
+            start = pos
+        end = start + len(block)
+        # Guess type from content
+        lower = block.lower()
+        if any(kw in lower for kw in ("function_calls", "tool_use", "<invoke")):
+            seg_type = "tool_use"
+        elif any(kw in lower for kw in ("function_results", "tool_result", "<output")):
+            seg_type = "tool_result"
+        else:
+            seg_type = "assistant_response"
+        matches.append((start, end, block, seg_type))
+        pos = end
+    return matches
+
+
+def parse_conversation(text: str) -> List[Segment]:
+    """Parse conversation text into ordered Segment objects.
+
+    Supports JSONL (Claude Code native format) and plain text with
+    Human:/Assistant: markers or freeform paragraphs.
+    """
+    # Try JSONL first
+    segments = _parse_jsonl(text)
+    if segments:
+        return segments
+
+    # Fall back to plain text parsing
+    return _parse_plain_text(text)
 
 # ---- Embeddings (lightweight feature vector) ----
 
@@ -397,14 +518,17 @@ def _build_output(segments: List[Segment], clusters: List[Cluster]) -> Dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cluster conversation segments by affinity")
-    parser.add_argument("--input", required=True, help="Conversation text file")
+    parser.add_argument("--input", required=True, help="Conversation text file (use '-' for stdin)")
     parser.add_argument("--output", help="Output JSON file (default: stdout)")
     parser.add_argument("--threshold", type=float, default=0.8, help="Affinity threshold (default: 0.8)")
     parser.add_argument("--min-size", type=int, default=2, help="Minimum cluster size (default: 2)")
     args = parser.parse_args()
 
-    with open(args.input, "r") as f:
-        text = f.read()
+    if args.input == "-":
+        text = sys.stdin.read()
+    else:
+        with open(args.input, "r") as f:
+            text = f.read()
 
     segments = parse_conversation(text)
     clusterer = AffinityClusterer(args.threshold, args.min_size)
