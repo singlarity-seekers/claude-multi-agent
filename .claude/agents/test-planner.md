@@ -88,6 +88,23 @@ Every test plan MUST evaluate each section. Include it if relevant; write "Not a
 - **Medium feature** (3-8 tickets, 100-500 LOC): 20-40 test cases, all applicable sections
 - **Large feature** (8+ tickets, 500+ LOC): 40-80 test cases, all sections with subsections
 
+### Change-Driven Test Requirements
+
+During Step 1 codebase exploration, identify the type of change being made. The following rules are **mandatory** — if a change type is detected, the corresponding test coverage MUST appear in the test plan.
+
+| Change Type | Detection Method | Required Test Coverage |
+|---|---|---|
+| **New or modified API endpoints** | Grep for new/changed route definitions, handler functions, or OpenAPI spec changes | Integration tests covering each new/changed endpoint. Include: request validation, response schema, error codes, auth/RBAC, and interaction with downstream services. Add these to Section 3 (Positive) and Section 2 (Negative). |
+| **Protobuf schema changes** | Grep for `.proto` file modifications, new message types, field additions/removals, or service definition changes | End-to-end tests covering the protobuf change. First explore the existing E2E test suite to determine whether an existing test can be enhanced to cover the change; if not, recommend a new E2E test. Document the decision ("enhance existing test X" vs. "new test needed") with rationale. Add these to Section 7 (E2E Regression). |
+| **Deploy config changes** (new DB type support, TLS changes, feature flags, new env vars, Helm/Kustomize changes) | Grep for changes in deployment manifests, Helm charts, Kustomize overlays, config maps, feature-flag definitions, or DB connection/migration code | Test cases validating each config change (e.g., new DB type connects and migrates correctly, TLS handshake succeeds/fails as expected, feature flag toggles behavior). Verify the CI deployment matrix covers the new configuration — if it does not, flag the gap explicitly in the test plan. Add these to Section 1 (Cluster Configurations) and Section 7 (E2E Regression). |
+
+**How to apply these rules:**
+1. During Step 1 (Source A: Codebase Exploration), actively scan for each change type listed above.
+2. For each detected change type, ensure the required test coverage is present in the corresponding test section(s).
+3. If a change type is detected but no corresponding tests exist in the codebase, mark `Automated? = No` and call it out in the test plan Overview as a coverage gap.
+4. For protobuf changes specifically, list the existing E2E tests you explored and explain why enhancement vs. new test was chosen.
+5. For deploy config changes, include a subsection in the test plan listing the current CI deployment matrix and noting whether the new configuration is covered.
+
 ## Step 3: RHOAI Environment Matrix
 
 When generating test cases for Section 1 (Cluster Configurations) and Section 7 (E2E Regression), map tests against these environments:
@@ -127,6 +144,9 @@ Review the test plan against this checklist. Fix any failures. Repeat until all 
 - [ ] Test schedule aligns with Jira implementation timeline
 - [ ] Performance test cases specify measurable thresholds (e.g., "<200ms p95"), not "should be fast"
 - [ ] All sections are sorted by Priority (P0 first) then Impact (High first)
+- [ ] If new/modified API endpoints detected → integration tests are included covering request validation, response schema, error codes, and auth
+- [ ] If protobuf schema changes detected → E2E test coverage is included, with documented rationale for enhancing an existing test vs. adding a new one
+- [ ] If deploy config changes detected → test cases cover the new config, and CI deployment matrix coverage is verified (gaps flagged if found)
 
 ### Example: Good vs. Bad Test Case
 
